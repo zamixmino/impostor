@@ -1,0 +1,772 @@
+import React, { useState, useEffect } from 'react';
+import { Users, Play, Eye, EyeOff, Crown, Target, Clock, Vote, Copy, Wifi, UserPlus } from 'lucide-react';
+
+const ImpostorGame = () => {
+  const [gameState, setGameState] = useState('home'); // home, create, join, lobby, playing, voting, results
+  const [playerName, setPlayerName] = useState('');
+  const [roomCode, setRoomCode] = useState('');
+  const [isHost, setIsHost] = useState(false);
+  const [gameData, setGameData] = useState({
+    players: [],
+    gameMode: 'classic',
+    currentWord: '',
+    impostorIndex: -1,
+    currentTurn: 0,
+    descriptions: [],
+    votes: {},
+    timeLeft: 30,
+    gameResults: null
+  });
+  const [myPlayerIndex, setMyPlayerIndex] = useState(-1);
+  const [myDescription, setMyDescription] = useState('');
+  const [hasVoted, setHasVoted] = useState(false);
+
+  // Simular conexión multijugador (en producción sería WebSocket/Firebase)
+  const [gameRooms, setGameRooms] = useState({});
+
+  // Base de palabras por categorías
+  const wordDatabase = {
+    animales: ['Elefante', 'Pingüino', 'Koala', 'Canguro', 'Jirafa', 'Delfín', 'Mariposa', 'Colibrí', 'Tiburón', 'Pulpo'],
+    objetos: ['Paraguas', 'Reloj', 'Espejo', 'Llave', 'Brújula', 'Lámpara', 'Tijeras', 'Martillo', 'Telescopio', 'Microondas'],
+    países: ['Japón', 'Brasil', 'Australia', 'Canadá', 'Egipto', 'Francia', 'Tailandia', 'Argentina', 'Suecia', 'Marruecos'],
+    profesiones: ['Chef', 'Piloto', 'Arquitecto', 'Veterinario', 'Bombero', 'Astronauta', 'Detective', 'Cirujano', 'Fotógrafo', 'Pianista'],
+    comida: ['Pizza', 'Sushi', 'Hamburguesa', 'Paella', 'Tacos', 'Croissant', 'Curry', 'Ramen', 'Gelato', 'Baklava']
+  };
+
+  // Timer effect
+  useEffect(() => {
+    if (gameState === 'playing' && gameData.timeLeft > 0) {
+      const timer = setTimeout(() => {
+        setGameData(prev => ({ ...prev, timeLeft: prev.timeLeft - 1 }));
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (gameState === 'playing' && gameData.timeLeft === 0) {
+      handleNextTurn();
+    }
+  }, [gameData.timeLeft, gameState]);
+
+  // Generar código de sala
+  const generateRoomCode = () => {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  };
+
+  // Crear sala
+  const createRoom = () => {
+    if (!playerName.trim()) return;
+    
+    const code = generateRoomCode();
+    const newRoom = {
+      host: playerName.trim(),
+      players: [playerName.trim()],
+      gameMode: 'classic',
+      gameState: 'lobby',
+      currentWord: '',
+      impostorIndex: -1,
+      currentTurn: 0,
+      descriptions: [],
+      votes: {},
+      timeLeft: 30,
+      gameResults: null
+    };
+    
+    setGameRooms(prev => ({ ...prev, [code]: newRoom }));
+    setRoomCode(code);
+    setIsHost(true);
+    setMyPlayerIndex(0);
+    setGameData(newRoom);
+    setGameState('lobby');
+  };
+
+  // Unirse a sala
+  const joinRoom = () => {
+    if (!playerName.trim() || !roomCode.trim()) return;
+    
+    const room = gameRooms[roomCode.toUpperCase()];
+    if (!room) {
+      alert('Sala no encontrada');
+      return;
+    }
+    
+    if (room.players.includes(playerName.trim())) {
+      alert('Ya hay un jugador con ese nombre');
+      return;
+    }
+
+    if (room.players.length >= 8) {
+      alert('Sala llena');
+      return;
+    }
+
+    const updatedRoom = {
+      ...room,
+      players: [...room.players, playerName.trim()]
+    };
+    
+    setGameRooms(prev => ({ ...prev, [roomCode.toUpperCase()]: updatedRoom }));
+    setMyPlayerIndex(updatedRoom.players.length - 1);
+    setGameData(updatedRoom);
+    setRoomCode(roomCode.toUpperCase());
+    setIsHost(false);
+    setGameState('lobby');
+  };
+
+  // Cambiar modo de juego (solo host)
+  const changeGameMode = (mode) => {
+    if (!isHost) return;
+    
+    const updatedRoom = { ...gameData, gameMode: mode };
+    setGameRooms(prev => ({ ...prev, [roomCode]: updatedRoom }));
+    setGameData(updatedRoom);
+  };
+
+  // Iniciar juego (solo host)
+  const startGame = () => {
+    if (!isHost || gameData.players.length < 3) return;
+    
+    // Seleccionar palabra aleatoria
+    const categories = Object.keys(wordDatabase);
+    const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+    const categoryWords = wordDatabase[randomCategory];
+    const selectedWord = categoryWords[Math.floor(Math.random() * categoryWords.length)];
+    
+    // Seleccionar impostor
+    const randomImpostor = Math.floor(Math.random() * gameData.players.length);
+    
+    const updatedRoom = {
+      ...gameData,
+      currentWord: selectedWord,
+      impostorIndex: randomImpostor,
+      currentTurn: 0,
+      descriptions: [],
+      timeLeft: 30,
+      gameState: 'playing'
+    };
+    
+    setGameRooms(prev => ({ ...prev, [roomCode]: updatedRoom }));
+    setGameData(updatedRoom);
+    setGameState('playing');
+  };
+
+  // Enviar descripción
+  const submitDescription = (description) => {
+    if (!description.trim()) return;
+    
+    const newDescription = { player: gameData.players[myPlayerIndex], description: description.trim() };
+    const updatedRoom = {
+      ...gameData,
+      descriptions: [...gameData.descriptions, newDescription]
+    };
+    
+    setGameRooms(prev => ({ ...prev, [roomCode]: updatedRoom }));
+    setGameData(updatedRoom);
+    setMyDescription(description.trim());
+    
+    // Si es el último jugador, pasar a votación
+    if (gameData.currentTurn >= gameData.players.length - 1) {
+      setTimeout(() => {
+        const votingRoom = { ...updatedRoom, gameState: 'voting' };
+        setGameRooms(prev => ({ ...prev, [roomCode]: votingRoom }));
+        setGameData(votingRoom);
+        setGameState('voting');
+      }, 1000);
+    } else {
+      // Siguiente turno
+      setTimeout(() => {
+        const nextTurnRoom = { ...updatedRoom, currentTurn: updatedRoom.currentTurn + 1, timeLeft: 30 };
+        setGameRooms(prev => ({ ...prev, [roomCode]: nextTurnRoom }));
+        setGameData(nextTurnRoom);
+      }, 1000);
+    }
+  };
+
+  // Votar
+  const handleVote = (votedPlayer) => {
+    if (hasVoted) return;
+    
+    const newVotes = { ...gameData.votes, [gameData.players[myPlayerIndex]]: votedPlayer };
+    const updatedRoom = { ...gameData, votes: newVotes };
+    
+    setGameRooms(prev => ({ ...prev, [roomCode]: updatedRoom }));
+    setGameData(updatedRoom);
+    setHasVoted(true);
+    
+    // Si todos han votado, calcular resultados
+    if (Object.keys(newVotes).length >= gameData.players.length) {
+      setTimeout(() => calculateResults(updatedRoom), 1000);
+    }
+  };
+
+  const calculateResults = (roomData) => {
+    const voteCount = {};
+    Object.values(roomData.votes).forEach(vote => {
+      voteCount[vote] = (voteCount[vote] || 0) + 1;
+    });
+    
+    const mostVoted = Object.keys(voteCount).reduce((a, b) => 
+      voteCount[a] > voteCount[b] ? a : b
+    );
+    
+    const actualImpostor = roomData.players[roomData.impostorIndex];
+    const impostorCaught = mostVoted === actualImpostor;
+    
+    const results = {
+      mostVoted,
+      actualImpostor,
+      impostorCaught,
+      word: roomData.currentWord,
+      voteCount
+    };
+    
+    const finalRoom = { ...roomData, gameResults: results, gameState: 'results' };
+    setGameRooms(prev => ({ ...prev, [roomCode]: finalRoom }));
+    setGameData(finalRoom);
+    setGameState('results');
+  };
+
+  const handleNextTurn = () => {
+    if (gameData.currentTurn < gameData.players.length - 1) {
+      const updatedRoom = { ...gameData, currentTurn: gameData.currentTurn + 1, timeLeft: 30 };
+      setGameRooms(prev => ({ ...prev, [roomCode]: updatedRoom }));
+      setGameData(updatedRoom);
+    } else {
+      const votingRoom = { ...gameData, gameState: 'voting' };
+      setGameRooms(prev => ({ ...prev, [roomCode]: votingRoom }));
+      setGameData(votingRoom);
+      setGameState('voting');
+    }
+  };
+
+  // Resetear juego
+  const resetGame = () => {
+    setGameState('home');
+    setPlayerName('');
+    setRoomCode('');
+    setIsHost(false);
+    setMyPlayerIndex(-1);
+    setMyDescription('');
+    setHasVoted(false);
+    setGameData({
+      players: [],
+      gameMode: 'classic',
+      currentWord: '',
+      impostorIndex: -1,
+      currentTurn: 0,
+      descriptions: [],
+      votes: {},
+      timeLeft: 30,
+      gameResults: null
+    });
+  };
+
+  // Copiar código de sala
+  const copyRoomCode = () => {
+    navigator.clipboard.writeText(roomCode);
+    alert('¡Código copiado!');
+  };
+
+  // Pantalla de inicio
+  if (gameState === 'home') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
+        <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 w-full max-w-md border border-white/20">
+          <div className="text-center mb-8">
+            <div className="bg-gradient-to-r from-pink-500 to-violet-500 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Target className="w-10 h-10 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-white mb-2">El Impostor</h1>
+            <p className="text-white/70">Multijugador Online</p>
+          </div>
+
+          <div className="space-y-4">
+            <input
+              type="text"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Tu nombre"
+              className="w-full bg-white/10 border border-white/30 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-pink-500"
+            />
+
+            <button
+              onClick={() => setGameState('create')}
+              disabled={!playerName.trim()}
+              className={`w-full py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 ${
+                playerName.trim()
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg'
+                  : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              <Crown className="w-5 h-5" />
+              Crear Sala
+            </button>
+
+            <button
+              onClick={() => setGameState('join')}
+              disabled={!playerName.trim()}
+              className={`w-full py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 ${
+                playerName.trim()
+                  ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:shadow-lg'
+                  : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              <UserPlus className="w-5 h-5" />
+              Unirse a Sala
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Crear sala
+  if (gameState === 'create') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
+        <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 w-full max-w-md border border-white/20">
+          <div className="text-center mb-8">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Crown className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">Crear Sala</h2>
+            <p className="text-white/70">Configura tu partida</p>
+          </div>
+
+          <div className="space-y-6">
+            <div>
+              <label className="block text-white/80 text-sm font-medium mb-2">Modo de Juego</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setGameData(prev => ({ ...prev, gameMode: 'classic' }))}
+                  className={`p-3 rounded-xl text-sm font-medium transition-all ${
+                    gameData.gameMode === 'classic'
+                      ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white shadow-lg'
+                      : 'bg-white/10 text-white/70 hover:bg-white/20'
+                  }`}
+                >
+                  <EyeOff className="w-4 h-4 mx-auto mb-1" />
+                  Clásico
+                </button>
+                <button
+                  onClick={() => setGameData(prev => ({ ...prev, gameMode: 'impostor' }))}
+                  className={`p-3 rounded-xl text-sm font-medium transition-all ${
+                    gameData.gameMode === 'impostor'
+                      ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white shadow-lg'
+                      : 'bg-white/10 text-white/70 hover:bg-white/20'
+                  }`}
+                >
+                  <Eye className="w-4 h-4 mx-auto mb-1" />
+                  Impostor Consciente
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setGameState('home')}
+                className="bg-white/10 text-white/70 hover:bg-white/20 py-3 rounded-xl font-medium transition-all"
+              >
+                Volver
+              </button>
+              <button
+                onClick={createRoom}
+                className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all"
+              >
+                Crear
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Unirse a sala
+  if (gameState === 'join') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
+        <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 w-full max-w-md border border-white/20">
+          <div className="text-center mb-8">
+            <div className="bg-gradient-to-r from-blue-500 to-indigo-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <UserPlus className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">Unirse a Sala</h2>
+            <p className="text-white/70">Introduce el código</p>
+          </div>
+
+          <div className="space-y-4">
+            <input
+              type="text"
+              value={roomCode}
+              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+              placeholder="CÓDIGO DE SALA"
+              className="w-full bg-white/10 border border-white/30 rounded-xl px-4 py-3 text-white text-center text-lg font-mono placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              maxLength={6}
+            />
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setGameState('home')}
+                className="bg-white/10 text-white/70 hover:bg-white/20 py-3 rounded-xl font-medium transition-all"
+              >
+                Volver
+              </button>
+              <button
+                onClick={joinRoom}
+                disabled={!roomCode.trim()}
+                className={`py-3 rounded-xl font-semibold transition-all ${
+                  roomCode.trim()
+                    ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:shadow-lg'
+                    : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                Unirse
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Lobby
+  if (gameState === 'lobby') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 mb-6 border border-white/20">
+            <div className="text-center">
+              <div className="bg-gradient-to-r from-pink-500 to-violet-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Wifi className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">Sala: {roomCode}</h2>
+              <button
+                onClick={copyRoomCode}
+                className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-mono text-sm transition-all flex items-center gap-2 mx-auto"
+              >
+                <Copy className="w-4 h-4" />
+                Copiar código
+              </button>
+            </div>
+          </div>
+
+          {isHost && (
+            <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 mb-6 border border-white/20">
+              <h3 className="text-white text-lg font-semibold mb-4">Configuración</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => changeGameMode('classic')}
+                  className={`p-3 rounded-xl text-sm font-medium transition-all ${
+                    gameData.gameMode === 'classic'
+                      ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white shadow-lg'
+                      : 'bg-white/10 text-white/70 hover:bg-white/20'
+                  }`}
+                >
+                  <EyeOff className="w-4 h-4 mx-auto mb-1" />
+                  Clásico
+                </button>
+                <button
+                  onClick={() => changeGameMode('impostor')}
+                  className={`p-3 rounded-xl text-sm font-medium transition-all ${
+                    gameData.gameMode === 'impostor'
+                      ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white shadow-lg'
+                      : 'bg-white/10 text-white/70 hover:bg-white/20'
+                  }`}
+                >
+                  <Eye className="w-4 h-4 mx-auto mb-1" />
+                  Impostor Consciente
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 mb-6 border border-white/20">
+            <h3 className="text-white text-lg font-semibold mb-4">
+              Jugadores ({gameData.players.length}/8)
+            </h3>
+            <div className="space-y-2">
+              {gameData.players.map((player, index) => (
+                <div key={index} className="bg-white/10 rounded-xl p-3 flex items-center gap-3">
+                  <div className="bg-gradient-to-r from-emerald-500 to-teal-500 w-8 h-8 rounded-lg flex items-center justify-center">
+                    <Users className="w-4 h-4 text-white" />
+                  </div>
+                  <span className="text-white font-medium">{player}</span>
+                  {index === 0 && <Crown className="w-4 h-4 text-yellow-400 ml-auto" />}
+                  {index === myPlayerIndex && <span className="text-pink-400 text-sm ml-auto">Tú</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {isHost && (
+            <button
+              onClick={startGame}
+              disabled={gameData.players.length < 3}
+              className={`w-full py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 ${
+                gameData.players.length >= 3
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg'
+                  : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              <Play className="w-5 h-5" />
+              Comenzar Juego
+            </button>
+          )}
+
+          {!isHost && (
+            <div className="text-center p-6">
+              <p className="text-white/70">Esperando a que el host inicie la partida...</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Jugando
+  if (gameState === 'playing') {
+    const isMyTurn = gameData.currentTurn === myPlayerIndex;
+    const isImpostor = gameData.impostorIndex === myPlayerIndex;
+    const currentPlayerName = gameData.players[gameData.currentTurn];
+    const hasDescribed = gameData.descriptions.some(d => d.player === gameData.players[myPlayerIndex]);
+    
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 mb-6 border border-white/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                  isMyTurn ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-pink-500 to-violet-500'
+                }`}>
+                  <Crown className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">
+                    {isMyTurn ? 'Tu turno' : `Turno de ${currentPlayerName}`}
+                  </h2>
+                  <p className="text-white/70">Jugador {gameData.currentTurn + 1} de {gameData.players.length}</p>
+                </div>
+              </div>
+              {isMyTurn && (
+                <div className="bg-red-500/20 border border-red-500/30 rounded-xl px-4 py-2 flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-red-400" />
+                  <span className="text-red-400 font-mono text-lg">{gameData.timeLeft}s</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 mb-6 border border-white/20 text-center">
+            <h3 className="text-white/80 text-lg mb-4">Tu palabra es:</h3>
+            <div className={`rounded-2xl p-6 inline-block ${
+              isImpostor ? 'bg-gradient-to-r from-red-500 to-pink-500' : 'bg-gradient-to-r from-emerald-500 to-teal-500'
+            }`}>
+              <span className="text-white text-3xl font-bold">
+                {isImpostor && gameData.gameMode === 'classic' ? '???' : 
+                 isImpostor && gameData.gameMode === 'impostor' ? 'IMPOSTOR' : 
+                 gameData.currentWord}
+              </span>
+            </div>
+            {isImpostor && gameData.gameMode === 'impostor' && (
+              <p className="text-yellow-400 text-sm mt-4 font-medium">
+                🎭 Eres el IMPOSTOR - Intenta pasar desapercibido
+              </p>
+            )}
+          </div>
+
+          {isMyTurn && !hasDescribed && (
+            <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 mb-6 border border-white/20">
+              <h4 className="text-white text-lg font-semibold mb-4">Describe tu palabra con UNA sola palabra:</h4>
+              <DescriptionInput onSubmit={submitDescription} />
+            </div>
+          )}
+
+          {hasDescribed && (
+            <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 mb-6 border border-white/20">
+              <div className="text-center">
+                <p className="text-white/70 mb-2">Tu descripción:</p>
+                <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl p-4 inline-block">
+                  <span className="text-white text-xl font-bold">{myDescription}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {gameData.descriptions.length > 0 && (
+            <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 border border-white/20">
+              <h4 className="text-white text-lg font-semibold mb-4">Descripciones:</h4>
+              <div className="space-y-3">
+                {gameData.descriptions.map((desc, index) => (
+                  <div key={index} className="bg-white/10 rounded-xl p-3 flex items-center justify-between">
+                    <span className="text-white font-medium">{desc.player}:</span>
+                    <span className="text-emerald-400 text-lg font-semibold">{desc.description}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Votación
+  if (gameState === 'voting') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 border border-white/20">
+            <div className="text-center mb-8">
+              <div className="bg-gradient-to-r from-red-500 to-pink-500 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Vote className="w-10 h-10 text-white" />
+              </div>
+              <h2 className="text-3xl font-bold text-white mb-2">¡Hora de Votar!</h2>
+              <p className="text-white/70">¿Quién crees que es el impostor?</p>
+            </div>
+
+            <div className="mb-8">
+              <h3 className="text-white text-xl font-semibold mb-4">Todas las descripciones:</h3>
+              <div className="space-y-3">
+                {gameData.descriptions.map((desc, index) => (
+                  <div key={index} className="bg-white/10 rounded-xl p-4 flex items-center justify-between">
+                    <span className="text-white font-medium text-lg">{desc.player}:</span>
+                    <span className="text-emerald-400 text-xl font-bold">{desc.description}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {!hasVoted ? (
+              <div className="space-y-3">
+                <h3 className="text-white text-lg font-semibold mb-4">Vota por el impostor:</h3>
+                {gameData.players.map((player, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleVote(player)}
+                    className="w-full bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white p-4 rounded-xl font-semibold text-lg transition-all hover:shadow-lg"
+                  >
+                    Votar por {player}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center">
+                <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-6">
+                  <h3 className="text-green-400 text-xl font-bold mb-2">¡Voto enviado!</h3>
+                  <p className="text-white/70">Esperando a que voten todos los jugadores...</p>
+                  <div className="mt-4">
+                    <p className="text-white/60">Votos: {Object.keys(gameData.votes).length} / {gameData.players.length}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Resultados
+  if (gameState === 'results') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4 flex items-center justify-center">
+        <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 w-full max-w-2xl border border-white/20">
+          <div className="text-center">
+            <div className={`w-24 h-24 rounded-3xl flex items-center justify-center mx-auto mb-6 ${
+              gameData.gameResults.impostorCaught ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-red-500 to-pink-500'
+            }`}>
+              <Target className="w-12 h-12 text-white" />
+            </div>
+            
+            <h2 className="text-4xl font-bold text-white mb-4">
+              {gameData.gameResults.impostorCaught ? '¡Victoria!' : '¡El Impostor Ganó!'}
+            </h2>
+            
+            <div className="space-y-4 mb-8">
+              <div className="bg-white/10 rounded-2xl p-4">
+                <p className="text-white/70 mb-2">La palabra era:</p>
+                <p className="text-emerald-400 text-2xl font-bold">{gameData.gameResults.word}</p>
+              </div>
+              
+              <div className="bg-white/10 rounded-2xl p-4">
+                <p className="text-white/70 mb-2">El impostor era:</p>
+                <p className="text-red-400 text-2xl font-bold">{gameData.gameResults.actualImpostor}</p>
+              </div>
+              
+              <div className="bg-white/10 rounded-2xl p-4">
+                <p className="text-white/70 mb-2">Más votado:</p>
+                <p className="text-yellow-400 text-2xl font-bold">{gameData.gameResults.mostVoted}</p>
+              </div>
+
+              <div className="bg-white/10 rounded-2xl p-4">
+                <p className="text-white/70 mb-3">Resultados de votación:</p>
+                <div className="space-y-2">
+                  {Object.entries(gameData.gameResults.voteCount).map(([player, votes]) => (
+                    <div key={player} className="flex justify-between items-center">
+                      <span className="text-white">{player}:</span>
+                      <span className="text-yellow-400 font-bold">{votes} votos</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={resetGame}
+              className="bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white px-8 py-3 rounded-xl font-semibold text-lg transition-all hover:shadow-lg"
+            >
+              Jugar Otra Vez
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+};
+
+// Componente para input de descripción
+const DescriptionInput = ({ onSubmit }) => {
+  const [description, setDescription] = useState('');
+
+  const handleSubmit = () => {
+    if (description.trim()) {
+      onSubmit(description);
+      setDescription('');
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleSubmit();
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <input
+        type="text"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onKeyPress={handleKeyPress}
+        placeholder="Tu descripción..."
+        className="w-full bg-white/10 border border-white/30 rounded-xl px-6 py-4 text-white text-xl placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-pink-500 text-center"
+        maxLength={20}
+        autoFocus
+      />
+      <button
+        onClick={handleSubmit}
+        disabled={!description.trim()}
+        className={`w-full py-4 rounded-xl font-semibold text-lg transition-all ${
+          description.trim()
+            ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg'
+            : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+        }`}
+      >
+        Enviar Descripción
+      </button>
+    </div>
+  );
+};
+
+export default ImpostorGame;
