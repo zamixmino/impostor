@@ -1,0 +1,342 @@
+:root {
+    --primary: #6C5DD3;
+    --primary-hover: #5a4cb5;
+    --accent: #FF754C;
+    --bg-dark: #111425;
+    --bg-card: rgba(255, 255, 255, 0.05);
+    --text-main: #ffffff;
+    --text-muted: #8F95B2;
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --danger: #FF4C61;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Outfit', sans-serif;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+    background-image:
+        radial-gradient(circle at 10% 20%, rgba(108, 93, 211, 0.2) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(255, 117, 76, 0.15) 0%, transparent 40%);
+}
+
+.app-container {
+    width: 100%;
+    max-width: 500px;
+    padding: 20px;
+    position: relative;
+    overflow-x: hidden;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 30px;
+    margin-top: 20px;
+}
+
+header h1 {
+    font-weight: 900;
+    font-size: 2.5rem;
+    letter-spacing: 2px;
+    background: linear-gradient(to right, #fff, #8F95B2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* CARDS & GLASSMORPHISM */
+.card {
+    background: var(--bg-card);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 30px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.glass {
+    background: var(--bg-card);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+}
+
+/* VIEW UTILS */
+.view {
+    display: none;
+    animation: fadeIn 0.4s ease;
+}
+
+.view.active {
+    display: block;
+}
+
+.hidden {
+    display: none !important;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* INPUTS & BUTTONS */
+.input-group {
+    margin-bottom: 20px;
+}
+
+input[type="text"],
+select {
+    width: 100%;
+    padding: 16px;
+    border-radius: 12px;
+    border: 2px solid var(--glass-border);
+    background: rgba(0, 0, 0, 0.3);
+    color: white;
+    font-size: 1.1rem;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.3s;
+}
+
+input[type="text"]:focus,
+select:focus {
+    border-color: var(--primary);
+}
+
+button {
+    cursor: pointer;
+    border: none;
+    font-weight: 700;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    width: 100%;
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--primary);
+    color: white;
+    font-size: 1.1rem;
+    box-shadow: 0 4px 15px rgba(108, 93, 211, 0.4);
+}
+
+.btn-primary:active {
+    transform: scale(0.98);
+}
+
+/* TABS */
+.tabs {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 25px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+    padding: 5px;
+}
+
+.tab-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.tab-btn.active {
+    background: var(--glass-border);
+    color: white;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+    animation: fadeIn 0.3s;
+}
+
+/* LOBBY */
+.room-info {
+    margin-bottom: 30px;
+}
+
+#lobby-code {
+    font-size: 3rem;
+    color: var(--accent);
+    letter-spacing: 5px;
+    margin: 10px 0;
+}
+
+.player-list-container {
+    text-align: left;
+    margin-bottom: 30px;
+}
+
+.player-list-container h3 {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 15px;
+    border-bottom: 1px solid var(--glass-border);
+    padding-bottom: 5px;
+}
+
+ul {
+    list-style: none;
+}
+
+#lobby-player-list li,
+#leaderboard li {
+    padding: 12px;
+    margin-bottom: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#lobby-player-list li.me {
+    border: 1px solid var(--primary);
+}
+
+/* GAME */
+.role-card {
+    padding: 20px;
+    text-align: center;
+    margin-bottom: 40px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.0));
+}
+
+.role-card .label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+#my-word {
+    font-size: 2.5rem;
+    color: var(--accent);
+    margin: 10px 0;
+    text-shadow: 0 0 20px rgba(255, 117, 76, 0.3);
+}
+
+#role-desc {
+    font-size: 1rem;
+    color: var(--text-muted);
+}
+
+.status-indicator {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.status-indicator h3 {
+    font-size: 2rem;
+    margin-top: 10px;
+}
+
+/* VOTING */
+.grid-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.vote-btn {
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px solid transparent;
+    border-radius: 16px;
+    color: white;
+    font-size: 1.1rem;
+}
+
+.vote-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.vote-btn.selected {
+    border-color: var(--danger);
+    background: rgba(255, 76, 97, 0.1);
+}
+
+.vote-btn.skip-btn {
+    grid-column: 1 / -1;
+    /* Full width */
+    background: rgba(255, 255, 255, 0.15);
+    border-color: var(--glass-border);
+}
+
+.vote-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* RESULTS */
+#result-title {
+    font-size: 2.5rem;
+    margin-bottom: 20px;
+}
+
+.winner-crew {
+    color: var(--primary);
+}
+
+.winner-impostor {
+    color: var(--danger);
+}
+
+/* ERROR/NOTIFY */
+#notification-area {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    width: 90%;
+    max-width: 400px;
+}
+
+.notification {
+    background: var(--danger);
+    color: white;
+    padding: 15px;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+    animation: slideDown 0.3s;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
