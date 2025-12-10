@@ -32,7 +32,7 @@ const WORDS = {
         "Maradona", "Pelé", "Zidane", "Ronaldinho", "Ronaldo Nazario", "Beckham"
     ],
     animales: [
-        "Perro", "Gato", "León", "Tigre", "Elefante", "Jirafa", "Mono",
+        "Perro", "Gato", "León", "Tigre", "Elefante", "Jirafa", "Pollo",
         "Serpiente", "Águila", "Tiburón", "Ballena", "Delfín", "Caballo",
         "Vaca", "Cerdo", "Oveja", "Gallina", "Pato", "Lobo", "Zorro",
         "Oso", "Panda", "Koala", "Canguro", "Cocodrilo", "Tortuga",
@@ -52,6 +52,13 @@ const WORDS = {
         "Tienda", "Farmacia", "Banco", "Iglesia", "Estadio", "Gimnasio",
         "Piscina", "Zoológico", "Parque de atracciones", "Circo", "Espacio", "Luna"
     ],
+    chorradas: [
+        "Edgar Serramià", "Hernia", "Ratas", "Hentaila", "Pantano", "JimmyBDN", "Sebas",
+        "David447447", "zamix", "Mear de pie", "Mear sentado", "Pollocop",
+        "RushBDontStop", "Fran Molina", "Mago Bon", "Restaurante", "Miki Valera", "Easy piece lemon squeezy",
+        "Counter Strike", "Pubg", "Entrevista Errejon", "Id perdido", "Estadio", "Mañana a trabajar",
+        "Joan Marc", "Ferve", "Rocket League", "Phasmophobia", "Vecino del Jimmy", "Rendell Pablo"
+    ],
     transportes: [
         "Coche", "Moto", "Bicicleta", "Autobús", "Tren", "Avión", "Barco",
         "Metro", "Taxi", "Camión", "Furgoneta", "Patinete", "Helicóptero",
@@ -66,7 +73,11 @@ const rooms = {};
 function getRandomWord(category) {
     let list = [];
     if (category === 'aleatorio' || !WORDS[category]) {
-        Object.values(WORDS).forEach(arr => list = list.concat(arr));
+        Object.entries(WORDS).forEach(([key, arr]) => {
+            if (key !== 'chorradas') {
+                list = list.concat(arr);
+            }
+        });
     } else {
         list = WORDS[category];
     }
@@ -140,6 +151,89 @@ io.on('connection', (socket) => {
             return;
         }
         startNewRound(roomCode, category);
+    });
+
+    socket.on('attemptGuess', ({ roomCode, guess }) => {
+        const room = rooms[roomCode];
+        if (!room || room.state !== 'VOTING') return;
+
+        const player = room.players.find(p => p.id === socket.id);
+        if (!player || !player.isImpostor) return;
+
+        const secret = room.currentWord.trim().toLowerCase();
+        const attempt = guess.trim().toLowerCase();
+
+        if (attempt === secret) {
+            // IMPOSTOR WINS
+            const payload = {
+                results: {},
+                skipCount: 0,
+                eliminatedId: null,
+                gameEnded: true,
+                winner: 'IMPOSTOR',
+                impostorName: player.nickname,
+                secretWord: room.currentWord
+            };
+            distributePoints(room, 'IMPOSTOR');
+            io.to(roomCode).emit('voteResult', payload);
+            io.to(roomCode).emit('gameEnded', { leaderboard: room.players });
+            room.state = 'GAME_OVER';
+        } else {
+            // Wrong guess
+            socket.emit('guessResult', { success: false });
+        }
+    });
+
+    socket.on('requestHint', ({ roomCode }) => {
+        const room = rooms[roomCode];
+        if (!room || room.state !== 'PLAYING') return;
+
+        const player = room.players.find(p => p.id === socket.id);
+        if (!player || !player.isImpostor) {
+            socket.emit('error', 'Solo el impostor puede pedir pistas.');
+            return;
+        }
+
+        player.score -= 15; // Penalty
+        socket.emit('hintReveal', { category: room.category });
+        io.to(roomCode).emit('updateLobby', room.players); // Update scores in lobby
+    });
+
+    socket.on('passTurn', ({ roomCode }) => {
+        const room = rooms[roomCode];
+        if (!room || room.state !== 'PLAYING') return;
+
+        const currentPlayerId = room.turnOrder[room.currentTurnIndex];
+        if (socket.id !== currentPlayerId) return;
+
+        const player = room.players.find(p => p.id === socket.id);
+        // Optional: restrict to Impostor only if desired, but user said "impostor could skip turn"
+        // Let's restrict it to Impostor based on request "Impostor pudiera saltar su turno"
+        if (!player.isImpostor) {
+            socket.emit('error', 'Solo el impostor puede saltar turno.');
+            return;
+        }
+
+        // Check if already last
+        if (room.currentTurnIndex >= room.turnOrder.length - 1) {
+            socket.emit('error', 'Ya eres el último, no puedes pasar más.');
+            return;
+        }
+
+        // Move current turn to the end of the list
+        // Remove from current index
+        const [skippedId] = room.turnOrder.splice(room.currentTurnIndex, 1);
+        room.turnOrder.push(skippedId);
+
+        // Don't increment index, because the next person shifted into current index
+        // But wait, if we push to end, the next person is NOW at currentTurnIndex.
+        // So we just emit update.
+
+        io.to(roomCode).emit('gameUpdate', {
+            state: 'PLAYING',
+            currentTurn: room.turnOrder[room.currentTurnIndex],
+            turnOrder: room.turnOrder
+        });
     });
 
     socket.on('nextTurn', ({ roomCode }) => {
@@ -305,7 +399,8 @@ function processVotes(roomCode) {
         eliminatedId: null,
         gameEnded: false,
         winner: null,
-        impostorName: room.players.find(p => p.id === room.impostorId)?.nickname
+        impostorName: room.players.find(p => p.id === room.impostorId)?.nickname,
+        secretWord: room.currentWord // Send secret word
     };
 
     if (outcome === 'ELIMINATED' && mostVotedId) {
