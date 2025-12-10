@@ -152,6 +152,29 @@ socket.on('gameUpdate', ({ state, currentTurn, players, turnOrder }) => {
     if (state === 'PLAYING') {
         showView('game');
         if (turnOrder) currentTurnOrder = turnOrder;
+
+        // Update Current Turn Name for EVERYONE
+        const p = cachedPlayers.find(x => x.id === currentTurn);
+        display.turnName.innerText = p ? p.nickname : '...';
+
+        // Button Visibility
+        if (currentTurn === myId) {
+            display.turnName.style.color = "var(--accent)";
+            display.turnName.innerText += " (TU TURNO)";
+            display.btnNext.classList.remove('hidden');
+
+            if (amImpostor) {
+                document.getElementById('btn-pass-turn').classList.remove('hidden');
+            } else {
+                document.getElementById('btn-pass-turn').classList.add('hidden');
+            }
+        } else {
+            display.turnName.style.color = "white";
+            display.btnNext.classList.add('hidden');
+            document.getElementById('btn-pass-turn').classList.add('hidden');
+        }
+
+        renderTurnOrder(currentTurn);
     } else if (state === 'VOTING') {
         if (currentTurn === myId) {
             display.turnName.innerText = "¡ES TU TURNO!";
