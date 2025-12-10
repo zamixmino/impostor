@@ -35,11 +35,24 @@ const display = {
 
 let myId = null;
 let currentRoomCode = null;
+let amImpostor = false;
 
 // VIEW NAVIGATION
 function showView(viewName) {
     Object.values(views).forEach(el => el.classList.remove('active', 'hidden'));
     views[viewName].classList.add('active');
+
+    // Toggle Leaderboard Visibility based on view
+    const lb = document.getElementById('live-leaderboard');
+    const toggleBtn = document.getElementById('btn-toggle-ranking');
+
+    if (viewName === 'game' || viewName === 'voting') {
+        lb.classList.remove('hidden');
+        toggleBtn.classList.remove('hidden');
+    } else {
+        lb.classList.add('hidden');
+        toggleBtn.classList.add('hidden');
+    }
 }
 
 // TABS
@@ -109,41 +122,91 @@ socket.on('updateLobby', (players) => {
         if (p.id === myId) li.classList.add('me');
         display.playerList.appendChild(li);
     });
+    updateLiveLeaderboard(players);
 });
 
+function updateLiveLeaderboard(players) {
+    const list = document.getElementById('live-ranking-list');
+    list.innerHTML = '';
+    const sorted = [...players].sort((a, b) => b.score - a.score);
+
+    sorted.forEach(p => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span>${p.nickname}</span> <span>${p.score}</span>`;
+        if (p.id === myId) li.classList.add('me');
+        list.appendChild(li);
+    });
+}
+
+let currentTurnOrder = [];
 socket.on('gameStarted', ({ category, turnOrder }) => {
     showView('game');
     display.btnNext.classList.add('hidden');
+    currentTurnOrder = turnOrder;
+    renderTurnOrder(turnOrder[0]);
 });
 
-socket.on('gameUpdate', ({ state, currentTurn, players }) => {
+socket.on('gameUpdate', ({ state, currentTurn, players, turnOrder }) => {
     if (state === 'PLAYING') {
         showView('game');
+        if (turnOrder) currentTurnOrder = turnOrder;
+
+        // If turnOrder changed (e.g. Pass to Last), we might need to update it?
+        // Ideally pass turnOrder in gameUpdate if it changes
+    } else if (state === 'VOTING') {
         if (currentTurn === myId) {
             display.turnName.innerText = "¡ES TU TURNO!";
             display.turnName.style.color = "var(--accent)";
             display.btnNext.classList.remove('hidden');
+            if (amImpostor) {
+                document.getElementById('btn-pass-turn').classList.remove('hidden');
+            }
         } else {
             const p = cachedPlayers.find(x => x.id === currentTurn);
             display.turnName.innerText = p ? p.nickname : '...';
             display.turnName.style.color = "white";
             display.btnNext.classList.add('hidden');
+            document.getElementById('btn-pass-turn').classList.add('hidden');
         }
+        renderTurnOrder(currentTurn);
     } else if (state === 'VOTING') {
         showView('voting');
         renderVotingOptions(players);
+
+        if (amImpostor) {
+            document.getElementById('impostor-guess-area').classList.remove('hidden');
+            document.getElementById('impostor-guess-input').value = '';
+            document.getElementById('btn-guess-word').disabled = false;
+        } else {
+            document.getElementById('impostor-guess-area').classList.add('hidden');
+        }
+    }
+});
+
+socket.on('guessResult', ({ success }) => {
+    if (!success) {
+        alert("¡Palabra incorrecta! Has perdido tu oportunidad.");
+        document.getElementById('btn-guess-word').disabled = true;
     }
 });
 
 socket.on('roleInfo', ({ word, isImpostor }) => {
     display.myWord.innerText = word;
+    amImpostor = isImpostor;
+
     if (isImpostor) {
         display.roleDesc.innerText = "ERES EL IMPOSTOR. Finge.";
         display.roleDesc.style.color = "var(--danger)";
+        document.getElementById('btn-hint').classList.remove('hidden');
     } else {
         display.roleDesc.innerText = "Eres una persona normal.";
         display.roleDesc.style.color = "var(--text-muted)";
+        document.getElementById('btn-hint').classList.add('hidden');
     }
+});
+
+socket.on('hintReveal', ({ category }) => {
+    alert(`¡PISTA! La categoría es: ${category.toUpperCase()}`);
 });
 
 function renderVotingOptions(players) {
@@ -179,15 +242,15 @@ socket.on('updateVotes', ({ voteCount, total }) => {
     document.getElementById('vote-status').innerText = `Votos: ${voteCount}/${total}`;
 });
 
-socket.on('voteResult', ({ results, eliminatedId, gameEnded, winner, impostorName, skipCount }) => {
+socket.on('voteResult', ({ results, eliminatedId, gameEnded, winner, impostorName, skipCount, secretWord }) => {
     if (gameEnded) {
         showView('results');
         if (winner === 'CREW') {
             display.resultTitle.innerHTML = "<span class='winner-crew'>¡LOS CIUDADANOS GANAN!</span>";
-            display.resultDetails.innerText = `El impostor era ${impostorName}. Fue descubierto.`;
+            display.resultDetails.innerText = `El impostor era ${impostorName}. Fue descubierto. \n La palabra era: ${secretWord || '???'}`;
         } else {
             display.resultTitle.innerHTML = "<span class='winner-impostor'>¡EL IMPOSTOR GANA!</span>";
-            display.resultDetails.innerText = `El impostor (${impostorName}) se ha salido con la suya.`;
+            display.resultDetails.innerText = `El impostor (${impostorName}) se ha salido con la suya. \n La palabra era: ${secretWord || '???'}`;
         }
     } else {
         // Round continues
@@ -246,3 +309,60 @@ document.getElementById('btn-next-turn').onclick = () => {
 document.getElementById('btn-play-again').onclick = () => {
     socket.emit('playAgain', { roomCode: currentRoomCode });
 };
+
+document.getElementById('btn-hint').onclick = () => {
+    if (confirm("¿Pedir pista? Te costará 15 puntos.")) {
+        socket.emit('requestHint', { roomCode: currentRoomCode });
+    }
+};
+
+document.getElementById('btn-pass-turn').onclick = () => {
+    socket.emit('passTurn', { roomCode: currentRoomCode });
+};
+
+// Ranking Toggles
+document.getElementById('btn-toggle-ranking').onclick = () => {
+    document.getElementById('live-leaderboard').classList.add('open');
+};
+document.getElementById('btn-close-ranking').onclick = () => {
+    document.getElementById('live-leaderboard').classList.remove('open');
+};
+
+document.getElementById('btn-guess-word').onclick = () => {
+    const guess = document.getElementById('impostor-guess-input').value.trim();
+    if (!guess) return;
+    if (confirm("¿Estás seguro? Si fallas, no podrás intentarlo de nuevo en esta ronda.")) {
+        socket.emit('attemptGuess', { roomCode: currentRoomCode, guess });
+    }
+};
+
+// Ranking Toggles
+document.getElementById('btn-toggle-ranking').onclick = () => {
+    document.getElementById('live-leaderboard').classList.add('open');
+};
+document.getElementById('btn-close-ranking').onclick = () => {
+    document.getElementById('live-leaderboard').classList.remove('open');
+};
+
+function renderTurnOrder(currentId) {
+    const list = document.getElementById('turn-order-list');
+    list.innerHTML = '';
+
+    // We need the full order. If it's not passed constantly, we assume it doesn't change EXCEPT on 'Pass to Last'
+    // But 'Pass to Last' changes it server side.
+    // Client doesn't know the new order unless we send it.
+    // Let's rely on server sending turnOrder in gameStarted. 
+    // And for 'Pass to Last', we need an update.
+
+    currentTurnOrder.forEach(id => {
+        const p = cachedPlayers.find(x => x.id === id);
+        if (!p) return;
+        const el = document.createElement('span');
+        el.innerText = p.nickname;
+        el.style.padding = "2px 6px";
+        el.style.borderRadius = "4px";
+        el.style.background = (id === currentId) ? "var(--accent)" : "rgba(255,255,255,0.1)";
+        if (p.eliminated || p.disconnected) el.style.textDecoration = "line-through";
+        list.appendChild(el);
+    });
+}
