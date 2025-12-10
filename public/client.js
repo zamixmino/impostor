@@ -111,6 +111,8 @@ socket.on('roomJoined', ({ roomCode, isAdmin }) => {
 });
 
 let cachedPlayers = [];
+let currentCategory = 'aleatorio';
+
 socket.on('updateLobby', (players) => {
     cachedPlayers = players;
     display.playerCount.innerText = players.length;
@@ -150,9 +152,6 @@ socket.on('gameUpdate', ({ state, currentTurn, players, turnOrder }) => {
     if (state === 'PLAYING') {
         showView('game');
         if (turnOrder) currentTurnOrder = turnOrder;
-
-        // If turnOrder changed (e.g. Pass to Last), we might need to update it?
-        // Ideally pass turnOrder in gameUpdate if it changes
     } else if (state === 'VOTING') {
         if (currentTurn === myId) {
             display.turnName.innerText = "¡ES TU TURNO!";
@@ -190,14 +189,25 @@ socket.on('guessResult', ({ success }) => {
     }
 });
 
-socket.on('roleInfo', ({ word, isImpostor }) => {
+socket.on('roleInfo', ({ word, isImpostor, category }) => {
     display.myWord.innerText = word;
     amImpostor = isImpostor;
+    currentCategory = category || 'aleatorio';
+
+    // Reset Hint Display
+    document.getElementById('hint-display').classList.add('hidden');
+    document.getElementById('hint-display').innerText = '';
 
     if (isImpostor) {
         display.roleDesc.innerText = "ERES EL IMPOSTOR. Finge.";
         display.roleDesc.style.color = "var(--danger)";
-        document.getElementById('btn-hint').classList.remove('hidden');
+
+        // Only show hint button if category is ALEATORIO
+        if (currentCategory === 'aleatorio') {
+            document.getElementById('btn-hint').classList.remove('hidden');
+        } else {
+            document.getElementById('btn-hint').classList.add('hidden');
+        }
     } else {
         display.roleDesc.innerText = "Eres una persona normal.";
         display.roleDesc.style.color = "var(--text-muted)";
@@ -206,7 +216,34 @@ socket.on('roleInfo', ({ word, isImpostor }) => {
 });
 
 socket.on('hintReveal', ({ category }) => {
-    alert(`¡PISTA! La categoría es: ${category.toUpperCase()}`);
+    const el = document.getElementById('hint-display');
+    el.classList.remove('hidden');
+    el.innerHTML = `<strong>PISTA:</strong> Categoría: ${category.toUpperCase()}`;
+});
+
+// STARTING EVENTS
+socket.on('impostorChoice', ({ duration }) => {
+    const modal = document.getElementById('impostor-choice-modal');
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+    let timeLeft = 3;
+    const counter = document.getElementById('choice-countdown');
+    counter.innerText = timeLeft;
+
+    const timer = setInterval(() => {
+        timeLeft--;
+        counter.innerText = timeLeft;
+        if (timeLeft <= 0) {
+            clearInterval(timer);
+            modal.style.display = 'none';
+        }
+    }, 1000);
+});
+
+socket.on('gameStarting', ({ duration }) => {
+    showView('game');
+    display.myWord.innerText = "PREPARANDO...";
+    display.roleDesc.innerText = "El impostor está eligiendo...";
 });
 
 function renderVotingOptions(players) {
@@ -320,20 +357,22 @@ document.getElementById('btn-pass-turn').onclick = () => {
     socket.emit('passTurn', { roomCode: currentRoomCode });
 };
 
-// Ranking Toggles
-document.getElementById('btn-toggle-ranking').onclick = () => {
-    document.getElementById('live-leaderboard').classList.add('open');
-};
-document.getElementById('btn-close-ranking').onclick = () => {
-    document.getElementById('live-leaderboard').classList.remove('open');
-};
-
 document.getElementById('btn-guess-word').onclick = () => {
     const guess = document.getElementById('impostor-guess-input').value.trim();
     if (!guess) return;
     if (confirm("¿Estás seguro? Si fallas, no podrás intentarlo de nuevo en esta ronda.")) {
         socket.emit('attemptGuess', { roomCode: currentRoomCode, guess });
     }
+};
+
+// Choice Buttons
+document.getElementById('btn-choice-last').onclick = () => {
+    socket.emit('choosePosition', { roomCode: currentRoomCode, choice: 'LAST' });
+    document.getElementById('impostor-choice-modal').style.display = 'none';
+};
+document.getElementById('btn-choice-random').onclick = () => {
+    socket.emit('choosePosition', { roomCode: currentRoomCode, choice: 'RANDOM' });
+    document.getElementById('impostor-choice-modal').style.display = 'none';
 };
 
 // Ranking Toggles
@@ -348,11 +387,12 @@ function renderTurnOrder(currentId) {
     const list = document.getElementById('turn-order-list');
     list.innerHTML = '';
 
-    // We need the full order. If it's not passed constantly, we assume it doesn't change EXCEPT on 'Pass to Last'
-    // But 'Pass to Last' changes it server side.
-    // Client doesn't know the new order unless we send it.
-    // Let's rely on server sending turnOrder in gameStarted. 
-    // And for 'Pass to Last', we need an update.
+    // USER REQUEST: Only Impostor sees turn order
+    if (!amImpostor) {
+        list.parentElement.classList.add('hidden');
+        return;
+    }
+    list.parentElement.classList.remove('hidden');
 
     currentTurnOrder.forEach(id => {
         const p = cachedPlayers.find(x => x.id === id);

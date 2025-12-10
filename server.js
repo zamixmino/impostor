@@ -153,6 +153,29 @@ io.on('connection', (socket) => {
         startNewRound(roomCode, category);
     });
 
+    socket.on('choosePosition', ({ roomCode, choice }) => {
+        const room = rooms[roomCode];
+        if (!room || room.state !== 'STARTING') return;
+        if (socket.id !== room.impostorId) return;
+
+        if (choice === 'LAST') {
+            const player = room.players.find(p => p.id === socket.id);
+            if (player) player.score -= 5;
+
+            // Move to end - Need to remove from random pos first?
+            // turnOrder is IDs.
+            const idx = room.turnOrder.indexOf(socket.id);
+            if (idx !== -1) {
+                room.turnOrder.splice(idx, 1);
+                room.turnOrder.push(socket.id);
+            }
+        }
+
+        // Force start immediately
+        if (startTimeouts[roomCode]) clearTimeout(startTimeouts[roomCode]);
+        finalizeGameStart(roomCode);
+    });
+
     socket.on('attemptGuess', ({ roomCode, guess }) => {
         const room = rooms[roomCode];
         if (!room || room.state !== 'VOTING') return;
@@ -309,6 +332,8 @@ io.on('connection', (socket) => {
     });
 });
 
+const startTimeouts = {};
+
 function startNewRound(roomCode, category) {
     const room = rooms[roomCode];
     room.category = category || 'aleatorio';
@@ -330,25 +355,56 @@ function startNewRound(roomCode, category) {
 
     room.turnOrder = shuffle(activePlayers.map(p => p.id));
     room.currentTurnIndex = 0;
+    // Don't set state to PLAYING yet, wait for choice
+    room.state = 'STARTING';
+
+    // Emit choice to Impostor
+    io.to(room.impostorId).emit('impostorChoice', { duration: 3000 });
+
+    // Notify others
+    activePlayers.forEach(p => {
+        if (!p.isImpostor) {
+            io.to(p.id).emit('gameStarting', { duration: 3000 });
+        }
+    });
+
+    // Timeout to force start if no choice
+    if (startTimeouts[roomCode]) clearTimeout(startTimeouts[roomCode]);
+    startTimeouts[roomCode] = setTimeout(() => {
+        if (room.state === 'STARTING') {
+            finalizeGameStart(roomCode);
+        }
+    }, 3500);
+}
+
+function finalizeGameStart(roomCode) {
+    const room = rooms[roomCode];
+    if (!room) return;
+
     room.state = 'PLAYING';
+
+    // Send Role Info FIRST
+    room.players.forEach(p => {
+        if (p.disconnected) return;
+        io.to(p.id).emit('roleInfo', {
+            word: p.isImpostor ? '???' : room.currentWord,
+            isImpostor: p.isImpostor,
+            category: room.category // Send category for hint logic
+        });
+    });
 
     io.to(roomCode).emit('gameStarted', {
         category: room.category,
         turnOrder: room.turnOrder
     });
 
-    activePlayers.forEach(p => {
-        io.to(p.id).emit('roleInfo', {
-            word: p.isImpostor ? '???' : room.currentWord,
-            isImpostor: p.isImpostor
-        });
-    });
-
     io.to(roomCode).emit('gameUpdate', {
         state: 'PLAYING',
-        currentTurn: room.turnOrder[room.currentTurnIndex]
+        currentTurn: room.turnOrder[room.currentTurnIndex],
+        turnOrder: room.turnOrder
     });
 }
+
 
 function processVotes(roomCode) {
     const room = rooms[roomCode];

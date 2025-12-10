@@ -122,6 +122,11 @@
                     <div id="turn-order-list" style="display: flex; gap: 10px; overflow-x: auto; padding: 5px;"></div>
                 </div>
 
+                <div id="hint-display" class="hidden glass"
+                    style="margin: 10px 0; padding: 10px; border: 1px solid var(--accent); color: var(--accent);">
+                    <!-- Hint appears here -->
+                </div>
+
                 <div class="action-area">
                     <button id="btn-next-turn" class="btn-primary hidden">TERMINAR MI TURNO</button>
                     <button id="btn-pass-turn" class="btn-secondary hidden" style="margin-left: 10px;">PASAR AL
@@ -149,26 +154,200 @@
                 </div>
             </div>
         </section>
+        <!DOCTYPE html>
+        <html lang="es">
 
-        <!-- VIEW: RESULTS -->
-        <section id="view-results" class="view hidden">
-            <div class="card glass">
-                <h2 id="result-title">RESULTADOS</h2>
-                <div id="result-details"></div>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Impostor - Juego de Deducción</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700;900&display=swap"
+                rel="stylesheet">
+            <link rel="stylesheet" href="style.css">
+            <script src="/socket.io/socket.io.js"></script>
+        </head>
 
-                <h3>Ranking</h3>
-                <ul id="leaderboard">
-                    <!-- Leaderboard items -->
-                </ul>
+        <body>
+            <div class="app-container">
+                <!-- HEADER -->
+                <header>
+                    <h1>IMPOSTOR</h1>
+                </header>
 
-                <button class="btn-primary hidden" id="btn-play-again">Jugar Otra Vez</button>
-                <p id="waiting-admin-result" class="hidden">El anfitrión puede reiniciar...</p>
+                <!-- NOTIFICATIONS -->
+                <div id="notification-area"></div>
+
+                <!-- PERSISTENT LEADERBOARD (Desktop Side / Mobile Modal) -->
+                <button id="btn-toggle-ranking" class="btn-icon mobile-only hidden"><img
+                        src="https://api.iconify.design/mdi:trophy.svg?color=white" alt="Ranking"></button>
+
+                <div id="live-leaderboard" class="glass hidden">
+                    <div class="lb-header">
+                        <h3>Ranking</h3>
+                        <button id="btn-close-ranking" class="mobile-only">✕</button>
+                    </div>
+                    <ul id="live-ranking-list">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+
+                <!-- VIEW: LOGIN -->
+                <section id="view-login" class="view active">
+                    <div class="card glass">
+                        <h2>Bienvenido</h2>
+                        <div class="input-group">
+                            <input type="text" id="nickname" placeholder="Tu Nombre" maxlength="12">
+                        </div>
+
+                        <div class="tabs">
+                            <button class="tab-btn active" onclick="switchTab('create')">Crear Sala</button>
+                            <button class="tab-btn" onclick="switchTab('join')">Unirse</button>
+                        </div>
+
+                        <div id="tab-create" class="tab-content active">
+                            <button class="btn-primary" id="btn-create">Crear Partida</button>
+                        </div>
+
+                        <div id="tab-join" class="tab-content">
+                            <div class="input-group">
+                                <input type="text" id="room-code-input" placeholder="CÓDIGO (Ej: ABCDE)" maxlength="5"
+                                    style="text-transform:uppercase;">
+                            </div>
+                            <button class="btn-primary" id="btn-join">Entrar</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW: LOBBY -->
+                <section id="view-lobby" class="view hidden">
+                    <div class="card glass">
+                        <div class="room-info">
+                            <span>CÓDIGO DE SALA:</span>
+                            <h2 id="lobby-code">----</h2>
+                            <p>Comparte este código con tus amigos</p>
+                        </div>
+
+                        <div class="player-list-container">
+                            <h3>Jugadores (<span id="player-count">0</span>/10)</h3>
+                            <ul id="lobby-player-list">
+                                <!-- Players go here -->
+                            </ul>
+                        </div>
+
+                        <div id="admin-controls" class="hidden">
+                            <h3>Configuración</h3>
+                            <select id="category-select">
+                                <option value="aleatorio">Aleatorio</option>
+                                <option value="comida">Comida</option>
+                                <option value="famosos">Famosos</option>
+                                <option value="futbolistas">Futbolistas</option>
+                                <option value="animales">Animales</option>
+                                <option value="cosas_de_casa">Cosas de Casa</option>
+                                <option value="lugares">Lugares</option>
+                                <option value="transportes">Transportes</option>
+                                <option value="chorradas">Chorradas</option>
+                            </select>
+                            <button class="btn-primary" id="btn-start">EMPEZAR PARTIDA</button>
+                        </div>
+                        <div id="waiting-msg" class="hidden">Esperando al anfitrión...</div>
+                    </div>
+                </section>
+
+                <!-- VIEW: GAME SHOW ROLE -->
+                <!-- VIEW: PLAYING -->
+                <section id="view-game" class="view hidden">
+                    <div class="top-bar">
+                        <div class="role-card glass" id="my-role-card">
+                            <span class="label">TU PALABRA</span>
+                            <h2 id="my-word">????</h2>
+                            <p id="role-desc">Eres Normal</p>
+                            <button id="btn-hint" class="btn-sm hidden" style="margin-top: 10px;">Pedir Pista (-15
+                                pts)</button>
+                        </div>
+                    </div>
+
+                    <div class="game-area">
+                        <div class="status-indicator">
+                            <p>TURNO DE:</p>
+                            <p>TURNO DE:</p>
+                            <h3 id="current-turn-name">...</h3>
+                        </div>
+
+                        <div class="turn-order-container" style="margin: 15px 0; font-size: 0.9em; opacity: 0.8;">
+                            <strong>Orden de Turnos:</strong>
+                            <div id="turn-order-list" style="display: flex; gap: 10px; overflow-x: auto; padding: 5px;">
+                            </div>
+                        </div>
+
+                        <div id="hint-display" class="hidden glass"
+                            style="margin: 10px 0; padding: 10px; border: 1px solid var(--accent); color: var(--accent);">
+                            <!-- Hint appears here -->
+                        </div>
+
+                        <div class="action-area">
+                            <button id="btn-next-turn" class="btn-primary hidden">TERMINAR MI TURNO</button>
+                            <button id="btn-pass-turn" class="btn-secondary hidden" style="margin-left: 10px;">PASAR AL
+                                FINAL</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW: VOTING -->
+                <section id="view-voting" class="view hidden">
+                    <div class="card glass">
+                        <h2>¡VOTACIÓN!</h2>
+                        <p>¿Quién es el impostor?</p>
+                        <div id="voting-options" class="grid-options">
+                            <!-- Buttons per player -->
+                        </div>
+                        <p id="vote-status">Esperando votos...</p>
+                        <div id="impostor-guess-area" class="hidden"
+                            style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 15px;">
+                            <h3>¿Adivinar Palabra? (1 intento)</h3>
+                            <div class="input-group">
+                                <input type="text" id="impostor-guess-input"
+                                    placeholder="Escribe la palabra secreta...">
+                                <button id="btn-guess-word" class="btn-primary">ADIVINAR Y GANAR</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW: RESULTS -->
+                <section id="view-results" class="view hidden">
+                    <div class="card glass">
+                        <h2 id="result-title">RESULTADOS</h2>
+                        <div id="result-details"></div>
+
+                        <h3>Ranking</h3>
+                        <ul id="leaderboard">
+                            <!-- Leaderboard items -->
+                        </ul>
+
+                        <button class="btn-primary hidden" id="btn-play-again">Jugar Otra Vez</button>
+                        <p id="waiting-admin-result" class="hidden">El anfitrión puede reiniciar...</p>
+                    </div>
+                </section>
+
+                <!-- VIEW: IMPOSTOR CHOICE MODAL -->
+                <div id="impostor-choice-modal" class="hidden"
+                    style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 200; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+                    <div class="card glass" style="width: 90%; max-width: 400px; text-align: center;">
+                        <h2>ELGE TU DESTINO</h2>
+                        <h3 id="choice-countdown" style="font-size: 3rem; color: var(--accent);">3</h3>
+                        <div class="grid-options">
+                            <button id="btn-choice-last" class="btn-primary" style="background: var(--danger);">ÚLTIMO
+                                (-5 pts)</button>
+                            <button id="btn-choice-random" class="btn-secondary">ALEATORIO</button>
+                        </div>
+                    </div>
+                </div>
+
             </div>
-        </section>
 
-    </div>
+            <script src="client.js"></script>
+        </body>
 
-    <script src="client.js"></script>
-</body>
-
-</html>
+        </html>
