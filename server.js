@@ -70,18 +70,16 @@ const WORDS = {
 const rooms = {};
 
 // Helper to get random word
+// Helper to get random word
 function getRandomWord(category) {
-    let list = [];
-    if (category === 'aleatorio' || !WORDS[category]) {
-        Object.entries(WORDS).forEach(([key, arr]) => {
-            if (key !== 'chorradas') {
-                list = list.concat(arr);
-            }
-        });
-    } else {
-        list = WORDS[category];
-    }
+    let list = WORDS[category] || [];
+    if (list.length === 0) return "Error";
     return list[Math.floor(Math.random() * list.length)];
+}
+
+function getRandomCategoryCode() {
+    const keys = Object.keys(WORDS).filter(k => k !== 'chorradas');
+    return keys[Math.floor(Math.random() * keys.length)];
 }
 
 // Helper to shuffle array
@@ -107,7 +105,11 @@ io.on('connection', (socket) => {
             category: 'aleatorio',
             turnOrder: [],
             currentTurnIndex: 0,
-            impostorId: null,
+            category: 'aleatorio',
+            turnOrder: [],
+            currentTurnIndex: 0,
+            impostorIds: [], // Changed from single ID
+            knowImpostors: false,
             votes: {},
             roundCount: 1,
             gameCount: 0
@@ -143,27 +145,28 @@ io.on('connection', (socket) => {
         io.to(roomCode).emit('updateLobby', room.players);
     });
 
-    socket.on('startGame', ({ roomCode, category }) => {
+    socket.on('startGame', ({ roomCode, category, impostorCount, knowImpostors }) => {
         const room = rooms[roomCode];
         if (!room || room.admin !== socket.id) return;
         if (room.players.length < 3) {
             socket.emit('error', 'Se necesitan mínimo 3 jugadores.');
             return;
         }
-        startNewRound(roomCode, category);
+        startNewRound(roomCode, category, parseInt(impostorCount) || 1, !!knowImpostors);
     });
 
     socket.on('choosePosition', ({ roomCode, choice }) => {
         const room = rooms[roomCode];
         if (!room || room.state !== 'STARTING') return;
-        if (socket.id !== room.impostorId) return;
+
+        // Security check: only impostors can choose
+        if (!room.impostorIds.includes(socket.id)) return;
 
         if (choice === 'LAST') {
             const player = room.players.find(p => p.id === socket.id);
             if (player) player.score -= 5;
 
-            // Move to end - Need to remove from random pos first?
-            // turnOrder is IDs.
+            // Move to end
             const idx = room.turnOrder.indexOf(socket.id);
             if (idx !== -1) {
                 room.turnOrder.splice(idx, 1);
@@ -194,7 +197,7 @@ io.on('connection', (socket) => {
                 eliminatedId: null,
                 gameEnded: true,
                 winner: 'IMPOSTOR',
-                impostorName: player.nickname,
+                impostorNames: room.impostorIds.map(id => room.players.find(p => p.id === id)?.nickname),
                 secretWord: room.currentWord
             };
             distributePoints(room, 'IMPOSTOR');
@@ -218,8 +221,13 @@ io.on('connection', (socket) => {
         }
 
         player.score -= 15; // Penalty
-        socket.emit('hintReveal', { category: room.category });
-        io.to(roomCode).emit('updateLobby', room.players); // Update scores in lobby
+
+        // Don't emit updateLobby here to prevent score leak
+        // io.to(roomCode).emit('updateLobby', room.players); 
+
+        // Send dictionary words to impostor
+        const words = WORDS[room.category] || [];
+        socket.emit('hintReveal', { category: room.category, words: words });
     });
 
     socket.on('passTurn', ({ roomCode }) => {
@@ -230,8 +238,6 @@ io.on('connection', (socket) => {
         if (socket.id !== currentPlayerId) return;
 
         const player = room.players.find(p => p.id === socket.id);
-        // Optional: restrict to Impostor only if desired, but user said "impostor could skip turn"
-        // Let's restrict it to Impostor based on request "Impostor pudiera saltar su turno"
         if (!player.isImpostor) {
             socket.emit('error', 'Solo el impostor puede saltar turno.');
             return;
@@ -244,19 +250,13 @@ io.on('connection', (socket) => {
         }
 
         // Move current turn to the end of the list
-        // Remove from current index
         const [skippedId] = room.turnOrder.splice(room.currentTurnIndex, 1);
         room.turnOrder.push(skippedId);
 
-        // Don't increment index, because the next person shifted into current index
-        // But wait, if we push to end, the next person is NOW at currentTurnIndex.
-        // So we just emit update.
-
-        io.to(roomCode).emit('gameUpdate', {
-            state: 'PLAYING',
-            currentTurn: room.turnOrder[room.currentTurnIndex],
-            turnOrder: room.turnOrder
-        });
+        // DO NOT increment index, effectively "passing" the slot to the next person
+        // But we must notify update
+        // Also check if the NEW person at this index is valid (connected)
+        ensureValidTurn(roomCode);
     });
 
     socket.on('nextTurn', ({ roomCode }) => {
@@ -266,19 +266,8 @@ io.on('connection', (socket) => {
         const currentPlayerId = room.turnOrder[room.currentTurnIndex];
         if (socket.id !== currentPlayerId && socket.id !== room.admin) return;
 
-        room.currentTurnIndex++;
-
-        if (room.currentTurnIndex >= room.turnOrder.length) {
-            // End of speaking cycle
-            room.state = 'VOTING';
-            room.votes = {};
-            io.to(roomCode).emit('gameUpdate', { state: 'VOTING', players: room.players });
-        } else {
-            io.to(roomCode).emit('gameUpdate', {
-                state: 'PLAYING',
-                currentTurn: room.turnOrder[room.currentTurnIndex]
-            });
-        }
+        // room.currentTurnIndex++; // REMOVED DOUBLE INCREMENT
+        advanceTurn(roomCode);
     });
 
     socket.on('vote', ({ roomCode, votedId }) => {
@@ -304,7 +293,7 @@ io.on('connection', (socket) => {
     socket.on('playAgain', ({ roomCode }) => {
         const room = rooms[roomCode];
         if (!room || room.admin !== socket.id) return;
-        startNewRound(roomCode, room.category);
+        startNewRound(roomCode, room.category, room.impostorIds.length, room.knowImpostors);
     });
 
     socket.on('disconnect', () => {
@@ -325,6 +314,24 @@ io.on('connection', (socket) => {
                 }
                 if (room.players.every(p => p.disconnected)) {
                     delete rooms[code];
+                } else if (room.state === 'VOTING') {
+                    // Check if we can finish voting now that someone left
+                    const activePlayers = room.players.filter(p => !p.disconnected && !p.eliminated);
+                    const voters = Object.keys(room.votes);
+                    const validVoters = activePlayers.map(p => p.id);
+                    const currentVoters = voters.filter(id => validVoters.includes(id));
+
+                    if (currentVoters.length >= validVoters.length) {
+                        processVotes(code);
+                    } else {
+                        io.to(code).emit('updateVotes', { voteCount: currentVoters.length, total: validVoters.length });
+                    }
+                } else if (room.state === 'PLAYING') {
+                    // If the disconnected player was the current turn, advance!
+                    const currentPlayerId = room.turnOrder[room.currentTurnIndex];
+                    if (currentPlayerId === socket.id) {
+                        advanceTurn(code);
+                    }
                 }
                 break;
             }
@@ -334,12 +341,25 @@ io.on('connection', (socket) => {
 
 const startTimeouts = {};
 
-function startNewRound(roomCode, category) {
+function startNewRound(roomCode, category, impostorCount = 1, knowImpostors = false) {
     const room = rooms[roomCode];
-    room.category = category || 'aleatorio';
+
+    // Logic for 'aleatorio': Pick a concrete category but tell clients it's 'aleatorio' (or reveal it?)
+    // Requirement: "la pista que debe recibir el impostor debería saber la categoria correcta" 
+    // So we pick a concrete one internally.
+
+    let selectedCategory = category;
+    if (!selectedCategory || selectedCategory === 'aleatorio') {
+        selectedCategory = getRandomCategoryCode(); // e.g. 'animales'
+    }
+
+    room.category = selectedCategory; // The REAL category
+    room.displayCategory = (category === 'aleatorio') ? 'aleatorio' : selectedCategory; // What was chosen
+
     room.currentWord = getRandomWord(room.category);
     room.roundCount = 1;
     room.gameCount++;
+    room.knowImpostors = knowImpostors;
 
     room.players.forEach(p => {
         p.eliminated = false;
@@ -347,19 +367,30 @@ function startNewRound(roomCode, category) {
     });
 
     const activePlayers = room.players.filter(p => !p.disconnected);
-    const impostorIndex = Math.floor(Math.random() * activePlayers.length);
-    activePlayers.forEach((p, index) => {
-        p.isImpostor = (index === impostorIndex);
+    const count = Math.min(Math.max(1, impostorCount), Math.max(1, activePlayers.length - 1));
+
+    // Assign Impostors
+    const indexes = [];
+    while (indexes.length < count) {
+        const r = Math.floor(Math.random() * activePlayers.length);
+        if (!indexes.includes(r)) indexes.push(r);
+    }
+
+    room.impostorIds = [];
+    indexes.forEach(idx => {
+        activePlayers[idx].isImpostor = true;
+        room.impostorIds.push(activePlayers[idx].id);
     });
-    room.impostorId = activePlayers[impostorIndex].id;
 
     room.turnOrder = shuffle(activePlayers.map(p => p.id));
     room.currentTurnIndex = 0;
     // Don't set state to PLAYING yet, wait for choice
     room.state = 'STARTING';
 
-    // Emit choice to Impostor
-    io.to(room.impostorId).emit('impostorChoice', { duration: 3000 });
+    // Emit choice to Impostors
+    room.impostorIds.forEach(id => {
+        io.to(id).emit('impostorChoice', { duration: 3000 });
+    });
 
     // Notify others
     activePlayers.forEach(p => {
@@ -383,26 +414,69 @@ function finalizeGameStart(roomCode) {
 
     room.state = 'PLAYING';
 
+    const impostorNames = room.knowImpostors ?
+        room.impostorIds.map(id => room.players.find(p => p.id === id)?.nickname).filter(n => n) : [];
+
     // Send Role Info FIRST
     room.players.forEach(p => {
         if (p.disconnected) return;
         io.to(p.id).emit('roleInfo', {
             word: p.isImpostor ? '???' : room.currentWord,
             isImpostor: p.isImpostor,
-            category: room.category // Send category for hint logic
+            category: p.isImpostor ? room.category : room.displayCategory, // Impostor sees REAL category (for hints), others see 'Aleatorio' if that was chosen
+            partners: (p.isImpostor && room.knowImpostors) ? impostorNames.filter(n => n !== p.nickname) : []
         });
     });
 
     io.to(roomCode).emit('gameStarted', {
-        category: room.category,
+        category: room.displayCategory, // Publicly show what was selected (e.g. Aleatorio)
         turnOrder: room.turnOrder
     });
 
-    io.to(roomCode).emit('gameUpdate', {
-        state: 'PLAYING',
-        currentTurn: room.turnOrder[room.currentTurnIndex],
-        turnOrder: room.turnOrder
-    });
+    // Ensure first turn is valid
+    ensureValidTurn(roomCode);
+}
+
+// HELPER: Recursively find next valid player
+function advanceTurn(roomCode) {
+    const room = rooms[roomCode];
+    if (!room) return;
+
+    const currentTurnOrder = room.turnOrder;
+    // Move to next
+    room.currentTurnIndex++;
+
+    // Check flow
+    ensureValidTurn(roomCode);
+}
+
+function ensureValidTurn(roomCode) {
+    const room = rooms[roomCode];
+    if (!room) return;
+
+    // Check if we reached end of list
+    if (room.currentTurnIndex >= room.turnOrder.length) {
+        room.state = 'VOTING';
+        room.votes = {};
+        io.to(roomCode).emit('gameUpdate', { state: 'VOTING', players: room.players });
+        return;
+    }
+
+    const nextId = room.turnOrder[room.currentTurnIndex];
+    const player = room.players.find(p => p.id === nextId);
+
+    // If player invalid, disconnected, or eliminated (shouldn't be in list, but safety) -> next
+    if (!player || player.disconnected || player.eliminated) {
+        // Recurse / Skip
+        advanceTurn(roomCode);
+    } else {
+        // Valid player found
+        io.to(roomCode).emit('gameUpdate', {
+            state: 'PLAYING',
+            currentTurn: nextId,
+            turnOrder: room.turnOrder
+        });
+    }
 }
 
 
@@ -455,8 +529,8 @@ function processVotes(roomCode) {
         eliminatedId: null,
         gameEnded: false,
         winner: null,
-        impostorName: room.players.find(p => p.id === room.impostorId)?.nickname,
-        secretWord: room.currentWord // Send secret word
+        impostorNames: room.impostorIds.map(id => room.players.find(p => p.id === id)?.nickname),
+        secretWord: room.currentWord
     };
 
     if (outcome === 'ELIMINATED' && mostVotedId) {
@@ -464,33 +538,49 @@ function processVotes(roomCode) {
         payload.eliminatedId = mostVotedId;
         eliminatedPlayer.eliminated = true;
 
-        if (eliminatedPlayer.isImpostor) {
-            // CREW WINS
+        // Remove from TURN ORDER if eliminated
+        room.turnOrder = room.turnOrder.filter(id => id !== mostVotedId);
+
+        // CHECK WIN CONDITIONS
+        const activePlayers = room.players.filter(p => !p.disconnected && !p.eliminated);
+        const activeImpostors = activePlayers.filter(p => p.isImpostor);
+        const activeCrew = activePlayers.filter(p => !p.isImpostor);
+
+        if (activeImpostors.length === 0) {
+            // CREW WINS - All impostors out
             payload.gameEnded = true;
             payload.winner = 'CREW';
             distributePoints(room, 'CREW');
+        } else if (activeImpostors.length >= activeCrew.length) {
+            // IMPOSTORS WIN - Parity or majority
+            payload.gameEnded = true;
+            payload.winner = 'IMPOSTOR';
+            distributePoints(room, 'IMPOSTOR');
         } else {
-            // WRONG VOTE
-            const remaining = room.players.filter(p => !p.disconnected && !p.eliminated);
-            if (remaining.length <= 2) {
-                payload.gameEnded = true;
-                payload.winner = 'IMPOSTOR';
-                distributePoints(room, 'IMPOSTOR');
-            } else {
-                room.state = 'PLAYING';
-                room.turnOrder = room.turnOrder.filter(id => id !== mostVotedId);
-                room.currentTurnIndex = 0;
-                payload.gameEnded = false;
-            }
+            // Game Continues
+            room.state = 'PLAYING';
+            room.currentTurnIndex = 0;
+            payload.gameEnded = false;
         }
     } else {
         // SKIP or TIE
         applyRoundScoring(room);
 
-        room.state = 'PLAYING';
-        room.currentTurnIndex = 0;
-        payload.gameEnded = false;
-        room.roundCount++;
+        // CHECK WIN CONDITIONS for Parity (e.g. if skip causes round to end but impostors parity reached? Unlikely unless someone disconnected)
+        const activePlayers = room.players.filter(p => !p.disconnected && !p.eliminated);
+        const activeImpostors = activePlayers.filter(p => p.isImpostor);
+        const activeCrew = activePlayers.filter(p => !p.isImpostor);
+
+        if (activeImpostors.length >= activeCrew.length) {
+            payload.gameEnded = true;
+            payload.winner = 'IMPOSTOR';
+            distributePoints(room, 'IMPOSTOR');
+        } else {
+            room.state = 'PLAYING';
+            room.currentTurnIndex = 0;
+            payload.gameEnded = false;
+            room.roundCount++;
+        }
     }
 
     io.to(roomCode).emit('voteResult', payload);

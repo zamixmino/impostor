@@ -12,7 +12,10 @@ const views = {
 const inputs = {
     nickname: document.getElementById('nickname'),
     roomCode: document.getElementById('room-code-input'),
-    category: document.getElementById('category-select')
+    roomCode: document.getElementById('room-code-input'),
+    category: document.getElementById('category-select'),
+    impostorCount: document.getElementById('impostor-count'),
+    knowImpostors: document.getElementById('know-impostors')
 };
 
 const display = {
@@ -47,11 +50,11 @@ function showView(viewName) {
     const toggleBtn = document.getElementById('btn-toggle-ranking');
 
     if (viewName === 'game' || viewName === 'voting') {
-        lb.classList.remove('hidden');
-        toggleBtn.classList.remove('hidden');
-    } else {
         lb.classList.add('hidden');
         toggleBtn.classList.add('hidden');
+    } else {
+        lb.classList.remove('hidden');
+        toggleBtn.classList.remove('hidden');
     }
 }
 
@@ -176,22 +179,6 @@ socket.on('gameUpdate', ({ state, currentTurn, players, turnOrder }) => {
 
         renderTurnOrder(currentTurn);
     } else if (state === 'VOTING') {
-        if (currentTurn === myId) {
-            display.turnName.innerText = "¡ES TU TURNO!";
-            display.turnName.style.color = "var(--accent)";
-            display.btnNext.classList.remove('hidden');
-            if (amImpostor) {
-                document.getElementById('btn-pass-turn').classList.remove('hidden');
-            }
-        } else {
-            const p = cachedPlayers.find(x => x.id === currentTurn);
-            display.turnName.innerText = p ? p.nickname : '...';
-            display.turnName.style.color = "white";
-            display.btnNext.classList.add('hidden');
-            document.getElementById('btn-pass-turn').classList.add('hidden');
-        }
-        renderTurnOrder(currentTurn);
-    } else if (state === 'VOTING') {
         showView('voting');
         renderVotingOptions(players);
 
@@ -212,7 +199,7 @@ socket.on('guessResult', ({ success }) => {
     }
 });
 
-socket.on('roleInfo', ({ word, isImpostor, category }) => {
+socket.on('roleInfo', ({ word, isImpostor, category, partners }) => {
     display.myWord.innerText = word;
     amImpostor = isImpostor;
     currentCategory = category || 'aleatorio';
@@ -225,12 +212,12 @@ socket.on('roleInfo', ({ word, isImpostor, category }) => {
         display.roleDesc.innerText = "ERES EL IMPOSTOR. Finge.";
         display.roleDesc.style.color = "var(--danger)";
 
-        // Only show hint button if category is ALEATORIO
-        if (currentCategory === 'aleatorio') {
-            document.getElementById('btn-hint').classList.remove('hidden');
-        } else {
-            document.getElementById('btn-hint').classList.add('hidden');
+        if (partners && partners.length > 0) {
+            display.roleDesc.innerHTML += `<br><span style="font-size:0.8em; color:white;">Tu compañero: ${partners.join(', ')}</span>`;
         }
+
+        // Always show hint button for Impostor (allows viewing dictionary)
+        document.getElementById('btn-hint').classList.remove('hidden');
     } else {
         display.roleDesc.innerText = "Eres una persona normal.";
         display.roleDesc.style.color = "var(--text-muted)";
@@ -238,10 +225,21 @@ socket.on('roleInfo', ({ word, isImpostor, category }) => {
     }
 });
 
-socket.on('hintReveal', ({ category }) => {
+socket.on('hintReveal', ({ category, words }) => {
     const el = document.getElementById('hint-display');
     el.classList.remove('hidden');
-    el.innerHTML = `<strong>PISTA:</strong> Categoría: ${category.toUpperCase()}`;
+
+    let wordListHtml = '';
+    if (words && words.length > 0) {
+        wordListHtml = `<div class="hint-words-container">
+            ${words.map(w => `<span class="hint-word">${w}</span>`).join('')}
+        </div>`;
+    }
+
+    el.innerHTML = `
+        <strong>PISTA:</strong> Categoría: ${category.toUpperCase()}
+        ${wordListHtml}
+    `;
 });
 
 // STARTING EVENTS
@@ -302,15 +300,15 @@ socket.on('updateVotes', ({ voteCount, total }) => {
     document.getElementById('vote-status').innerText = `Votos: ${voteCount}/${total}`;
 });
 
-socket.on('voteResult', ({ results, eliminatedId, gameEnded, winner, impostorName, skipCount, secretWord }) => {
+socket.on('voteResult', ({ results, eliminatedId, gameEnded, winner, impostorNames, skipCount, secretWord }) => {
     if (gameEnded) {
         showView('results');
         if (winner === 'CREW') {
             display.resultTitle.innerHTML = "<span class='winner-crew'>¡LOS CIUDADANOS GANAN!</span>";
-            display.resultDetails.innerText = `El impostor era ${impostorName}. Fue descubierto. \n La palabra era: ${secretWord || '???'}`;
+            display.resultDetails.innerText = `Los impostores eran: ${impostorNames.join(', ')}. Fueron descubiertos. \n La palabra era: ${secretWord || '???'}`;
         } else {
             display.resultTitle.innerHTML = "<span class='winner-impostor'>¡EL IMPOSTOR GANA!</span>";
-            display.resultDetails.innerText = `El impostor (${impostorName}) se ha salido con la suya. \n La palabra era: ${secretWord || '???'}`;
+            display.resultDetails.innerText = `Los impostores (${impostorNames.join(', ')}) se han salido con la suya. \n La palabra era: ${secretWord || '???'}`;
         }
     } else {
         // Round continues
@@ -358,7 +356,9 @@ document.getElementById('btn-join').onclick = () => {
 document.getElementById('btn-start').onclick = () => {
     socket.emit('startGame', {
         roomCode: currentRoomCode,
-        category: inputs.category.value
+        category: inputs.category.value,
+        impostorCount: inputs.impostorCount.value,
+        knowImpostors: inputs.knowImpostors.checked
     });
 };
 
