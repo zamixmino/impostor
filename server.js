@@ -191,13 +191,20 @@ io.on('connection', (socket) => {
 
         if (attempt === secret) {
             // IMPOSTOR WINS
+            const impostorNames = room.impostorIds.map(id => room.players.find(p => p.id === id)?.nickname);
+            const winTitle = (room.impostorIds.length > 1) ? '¡LOS IMPOSTORES GANAN!' : '¡EL IMPOSTOR GANA!';
+            const winMsg = (room.impostorIds.length > 1) ?
+                `Los impostores (${impostorNames.join(', ')}) se han salido con la suya.` :
+                `El impostor (${impostorNames[0]}) se ha salido con la suya.`;
+
             const payload = {
                 results: {},
                 skipCount: 0,
                 eliminatedId: null,
                 gameEnded: true,
                 winner: 'IMPOSTOR',
-                impostorNames: room.impostorIds.map(id => room.players.find(p => p.id === id)?.nickname),
+                winTitle,
+                winMsg,
                 secretWord: room.currentWord
             };
             distributePoints(room, 'IMPOSTOR');
@@ -297,7 +304,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
+        // console.log('User disconnected:', socket.id); // Optional log
         for (const code in rooms) {
             const room = rooms[code];
             const playerIndex = room.players.findIndex(p => p.id === socket.id);
@@ -336,6 +343,36 @@ io.on('connection', (socket) => {
                 break;
             }
         }
+    });
+
+
+    // ADMIN TOOLS
+    socket.on('kickPlayer', ({ roomCode, playerId }) => {
+        const room = rooms[roomCode];
+        if (!room || room.admin !== socket.id) return;
+
+        // Find player socket and disconnect them? Or just remove from list
+        // Removing from list logic is handled in disconnect usually, but we can force it.
+        // Better: Emit 'kicked' to target, then manually trigger leave logic.
+
+        const targetSocket = io.sockets.sockets.get(playerId);
+        if (targetSocket) {
+            targetSocket.emit('error', 'Has sido expulsado de la sala.');
+            targetSocket.disconnect(true);
+        } else {
+            // Player might be disconnected but still in list
+            const idx = room.players.findIndex(p => p.id === playerId);
+            if (idx !== -1) {
+                room.players.splice(idx, 1);
+                io.to(roomCode).emit('updateLobby', room.players);
+            }
+        }
+    });
+
+    socket.on('forceRestart', ({ roomCode }) => {
+        const room = rooms[roomCode];
+        if (!room || room.admin !== socket.id) return;
+        startNewRound(roomCode, room.category, room.impostorIds.length, room.knowImpostors);
     });
 });
 
@@ -418,15 +455,59 @@ function finalizeGameStart(roomCode) {
         room.impostorIds.map(id => room.players.find(p => p.id === id)?.nickname).filter(n => n) : [];
 
     // Send Role Info FIRST
+    // Send Role Info FIRST
     room.players.forEach(p => {
         if (p.disconnected) return;
+
+        // LOGIC: Spy Mode (if knowImpostors is FALSE)
+        // If Impostor AND knowImpostors is TRUE -> Show "You are Impostor" + Real Category + Partner
+        // If Impostor AND knowImpostors is FALSE -> Show "You are Normal" + Fake Word + Fake Category? or Real Category?
+        // User said: "les saldrá otra palabra de la categoria"
+
+        let sentWord = room.currentWord;
+        let sentIsImpostor = false;
+        let sentCategory = room.displayCategory;
+
+        if (p.isImpostor) {
+            if (room.knowImpostors) {
+                // Classic Impostor
+                sentWord = '???';
+                sentIsImpostor = true;
+                sentCategory = room.category; // Needed for hints
+            } else {
+                // SPY MODE (Hidden Impostor)
+                sentIsImpostor = false; // They think they are crew
+                // Pick a fake word from SAME category
+                let fakeWord = room.currentWord;
+                const catWords = WORDS[room.category] || [];
+                // Try 10 times to get a different word
+                for (let i = 0; i < 10; i++) {
+                    const w = catWords[Math.floor(Math.random() * catWords.length)];
+                    if (w !== room.currentWord) {
+                        fakeWord = w;
+                        break;
+                    }
+                }
+                sentWord = fakeWord;
+                sentCategory = room.displayCategory; // Consistent with others
+            }
+        } else {
+            // Crew
+            sentWord = room.currentWord;
+            sentIsImpostor = false;
+            sentCategory = room.displayCategory;
+        }
+
         io.to(p.id).emit('roleInfo', {
-            word: p.isImpostor ? '???' : room.currentWord,
-            isImpostor: p.isImpostor,
-            category: p.isImpostor ? room.category : room.displayCategory, // Impostor sees REAL category (for hints), others see 'Aleatorio' if that was chosen
+            word: sentWord,
+            isImpostor: sentIsImpostor, // Visual Role
+            realImpostor: p.isImpostor, // Actual Role (for client side admin/logic if needed? No, logic should stay server side preferably, relying on isImpostor for UI red card)
+            category: sentCategory,
             partners: (p.isImpostor && room.knowImpostors) ? impostorNames.filter(n => n !== p.nickname) : []
         });
     });
+
+    io.to(roomCode).emit('updateLobby', room.players); // CRITICAL: Reset eliminated/cross-out status on clients
 
     io.to(roomCode).emit('gameStarted', {
         category: room.displayCategory, // Publicly show what was selected (e.g. Aleatorio)
@@ -523,13 +604,19 @@ function processVotes(roomCode) {
         outcome = 'TIE';
     }
 
+    const winTitle = (room.impostorIds.length > 1) ? '¡LOS IMPOSTORES GANAN!' : '¡EL IMPOSTOR GANA!';
+    const winMsgCrew = "Los ciudadanos han descubierto a los impostores.";
+    // Ensure impostorNames is a string, not array
+    const impostorNames = room.impostorIds.map(id => room.players.find(p => p.id === id)?.nickname).join(', ');
+
     const payload = {
         results: voteCounts,
         skipCount: skipVotes,
         eliminatedId: null,
         gameEnded: false,
         winner: null,
-        impostorNames: room.impostorIds.map(id => room.players.find(p => p.id === id)?.nickname),
+        winTitle: '',
+        winMsg: '',
         secretWord: room.currentWord
     };
 
@@ -550,11 +637,17 @@ function processVotes(roomCode) {
             // CREW WINS - All impostors out
             payload.gameEnded = true;
             payload.winner = 'CREW';
+            payload.winTitle = "¡LOS CIUDADANOS GANAN!";
+            payload.winMsg = `Los impostores eran: ${impostorNames}. \n La palabra era: ${room.currentWord}`;
             distributePoints(room, 'CREW');
         } else if (activeImpostors.length >= activeCrew.length) {
             // IMPOSTORS WIN - Parity or majority
             payload.gameEnded = true;
             payload.winner = 'IMPOSTOR';
+            payload.winTitle = winTitle;
+            payload.winMsg = (room.impostorIds.length > 1) ?
+                `Los impostores (${impostorNames}) dominan la nave.` :
+                `El impostor (${impostorNames}) domina la nave.`;
             distributePoints(room, 'IMPOSTOR');
         } else {
             // Game Continues
@@ -574,6 +667,10 @@ function processVotes(roomCode) {
         if (activeImpostors.length >= activeCrew.length) {
             payload.gameEnded = true;
             payload.winner = 'IMPOSTOR';
+            payload.winTitle = winTitle;
+            payload.winMsg = (room.impostorIds.length > 1) ?
+                `Los impostores (${impostorNames}) dominan por número.` :
+                `El impostor (${impostorNames}) domina por número.`;
             distributePoints(room, 'IMPOSTOR');
         } else {
             room.state = 'PLAYING';

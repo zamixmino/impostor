@@ -21,6 +21,9 @@
     --color-green: #10b981;
     --color-green-dark: #059669;
 
+    --impostor-red: #ef4444;
+    --impostor-glow: rgba(239, 68, 68, 0.5);
+
     --font-main: 'Outfit', sans-serif;
     --font-secondary: 'Outfit', sans-serif;
 }
@@ -50,7 +53,7 @@ body::before {
     left: 0;
     right: 0;
     bottom: 0;
-    background: 
+    background:
         radial-gradient(circle at 20% 30%, rgba(168, 85, 247, 0.15), transparent 40%),
         radial-gradient(circle at 80% 70%, rgba(6, 182, 212, 0.15), transparent 40%),
         radial-gradient(circle at 50% 50%, rgba(249, 115, 22, 0.1), transparent 50%);
@@ -74,13 +77,46 @@ h3 {
     font-weight: 800;
 }
 
-h2, h3 {
+h2,
+h3 {
     color: var(--text-main);
 }
 
 header {
     text-align: center;
     margin: 20px 0;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#admin-header-controls {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.btn-danger-outline {
+    background: transparent;
+    border: 1px solid var(--color-red);
+    color: var(--color-red);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-danger-outline:hover {
+    background: var(--color-red);
+    color: white;
+    transform: rotate(180deg);
 }
 
 header h1 {
@@ -105,7 +141,7 @@ header h1 {
     border-radius: 24px;
     padding: 30px;
     margin-bottom: 20px;
-    box-shadow: 
+    box-shadow:
         0 8px 32px rgba(0, 0, 0, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
     text-align: center;
@@ -116,7 +152,7 @@ header h1 {
 .card:hover,
 .glass:hover {
     transform: translateY(-2px);
-    box-shadow: 
+    box-shadow:
         0 12px 48px rgba(0, 0, 0, 0.4),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
@@ -138,16 +174,22 @@ select {
     font-size: 1rem;
     font-weight: 500;
     text-align: center;
-    color: var(--text-main);
+    text-align: center;
+    color: var(--text-dark);
+    /* Force dark text for visibility in white input */
     outline: none;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+option {
+    color: black;
 }
 
 input:focus,
 select:focus {
     border-color: var(--color-purple);
     background: rgba(168, 85, 247, 0.1);
-    box-shadow: 
+    box-shadow:
         0 0 0 3px rgba(168, 85, 247, 0.1),
         0 4px 12px rgba(168, 85, 247, 0.2);
     transform: translateY(-1px);
@@ -176,7 +218,7 @@ button {
     font-size: 1.1rem;
     font-weight: 700;
     letter-spacing: 0.5px;
-    box-shadow: 
+    box-shadow:
         0 4px 16px rgba(168, 85, 247, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
     margin-bottom: 10px;
@@ -202,14 +244,14 @@ button {
 
 .btn-primary:hover {
     transform: translateY(-2px);
-    box-shadow: 
+    box-shadow:
         0 6px 24px rgba(168, 85, 247, 0.4),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .btn-primary:active {
     transform: translateY(0);
-    box-shadow: 
+    box-shadow:
         0 2px 8px rgba(168, 85, 247, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
@@ -260,7 +302,7 @@ button {
 .tab-btn.active {
     background: linear-gradient(135deg, var(--color-purple), var(--color-purple-dark));
     color: white;
-    box-shadow: 
+    box-shadow:
         0 4px 12px rgba(168, 85, 247, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
@@ -302,6 +344,33 @@ ul {
     transform: translateX(4px);
 }
 
+.p-info {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.btn-kick {
+    background: transparent;
+    border: none;
+    color: var(--color-red);
+    font-size: 1rem;
+    margin-left: 10px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.btn-kick:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+.trophy {
+    font-size: 1.2rem;
+    margin-right: 5px;
+    filter: drop-shadow(0 0 5px gold);
+}
+
 #lobby-player-list li.me {
     background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(6, 182, 212, 0.1));
     border: 1px solid rgba(6, 182, 212, 0.3);
@@ -317,9 +386,30 @@ ul {
     border-radius: 20px;
     margin-bottom: 30px;
     padding: 25px;
-    box-shadow: 
+    box-shadow:
         0 8px 32px rgba(0, 0, 0, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.impostor-card {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(185, 28, 28, 0.2));
+    border: 2px solid var(--impostor-red);
+    box-shadow: 0 0 30px var(--impostor-glow);
+    animation: pulseRed 2s infinite;
+}
+
+@keyframes pulseRed {
+    0% {
+        box-shadow: 0 0 20px var(--impostor-glow);
+    }
+
+    50% {
+        box-shadow: 0 0 40px var(--impostor-glow);
+    }
+
+    100% {
+        box-shadow: 0 0 20px var(--impostor-glow);
+    }
 }
 
 #my-word {
@@ -352,39 +442,60 @@ ul {
     font-size: 0.9rem;
 }
 
-/* TURN ORDER */
-.status-indicator {
-    margin: 20px 0;
-}
 
-.status-indicator p {
-    color: var(--text-light);
-    font-size: 0.85rem;
-    letter-spacing: 1px;
-    margin-bottom: 8px;
-}
 
-#current-turn-name {
-    color: var(--color-cyan);
-    font-size: 1.5rem;
-}
-
+/* NEW TURN ORDER STYLES */
 #turn-order-list {
     display: flex;
-    gap: 10px;
-    overflow-x: auto;
-    padding: 10px 0;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0;
+    margin-top: 10px;
+    width: 100%;
 }
 
-#turn-order-list span {
-    background: rgba(255, 255, 255, 0.08);
+.turn-item {
+    display: flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--card-border);
-    color: var(--text-main);
-    padding: 8px 14px;
+    padding: 12px 16px;
     border-radius: 12px;
+    transition: all 0.3s ease;
+}
+
+.turn-item.current {
+    background: linear-gradient(90deg, rgba(6, 182, 212, 0.2), transparent);
+    border-left: 4px solid var(--color-cyan);
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.turn-item.me {
+    border-color: rgba(6, 182, 212, 0.5);
+}
+
+.turn-item.inactive {
+    opacity: 0.5;
+    text-decoration: line-through;
+}
+
+.turn-num {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: var(--text-light);
+    margin-right: 15px;
+    width: 24px;
+    text-align: center;
+}
+
+.turn-item.current .turn-num {
+    color: var(--color-cyan);
+}
+
+.turn-name {
+    font-size: 1.1rem;
     font-weight: 600;
-    font-size: 0.9rem;
-    white-space: nowrap;
 }
 
 /* VOTING */
@@ -416,7 +527,7 @@ ul {
     color: white;
     border-color: transparent;
     transform: translateY(0);
-    box-shadow: 
+    box-shadow:
         0 4px 16px rgba(239, 68, 68, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
@@ -470,13 +581,13 @@ ul {
 #btn-hint {
     background: linear-gradient(135deg, var(--color-orange), var(--color-orange-dark));
     border-color: transparent;
-    box-shadow: 
+    box-shadow:
         0 4px 16px rgba(249, 115, 22, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 #btn-hint:hover {
-    box-shadow: 
+    box-shadow:
         0 6px 24px rgba(249, 115, 22, 0.4),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
@@ -485,18 +596,24 @@ ul {
     background: linear-gradient(135deg, var(--color-cyan), var(--color-cyan-dark));
     color: white !important;
     border-color: transparent;
-    box-shadow: 
+    box-shadow:
         0 4px 16px rgba(6, 182, 212, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 #btn-pass-turn:hover {
-    box-shadow: 
+    box-shadow:
         0 6px 24px rgba(6, 182, 212, 0.4),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 /* NOTIFICATIONS */
+#impostor-guess-area {
+    margin-top: 30px !important;
+    padding-top: 20px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
 #notification-area {
     width: 90%;
     max-width: 400px;
@@ -513,7 +630,7 @@ ul {
     padding: 16px 24px;
     border-radius: 16px;
     font-weight: 600;
-    box-shadow: 
+    box-shadow:
         0 8px 32px rgba(239, 68, 68, 0.4),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
     text-align: center;
@@ -623,6 +740,7 @@ ul {
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -634,6 +752,7 @@ ul {
         transform: translate(-50%, -100%);
         opacity: 0;
     }
+
     to {
         transform: translate(-50%, 0);
         opacity: 1;
@@ -645,6 +764,7 @@ ul {
         transform: scale(0.8);
         opacity: 0;
     }
+
     100% {
         transform: scale(1);
         opacity: 1;

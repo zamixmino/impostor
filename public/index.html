@@ -19,6 +19,10 @@
         <!-- HEADER -->
         <header>
             <h1>IMPOSTOR</h1>
+            <div id="admin-header-controls" class="hidden">
+                <!-- Admin buttons will be injected here -->
+                <button id="btn-header-restart" class="btn-sm btn-danger-outline" title="Reiniciar Ronda">↺</button>
+            </div>
         </header>
 
         <!-- NOTIFICATIONS -->
@@ -55,7 +59,7 @@
                     <button class="btn-primary" id="btn-create">Crear Partida</button>
                 </div>
 
-                <div id="tab-join" class="tab-content">
+                <div id="tab-join" class="tab-content" style="display:none;">
                     <div class="input-group">
                         <input type="text" id="room-code-input" placeholder="CÓDIGO (Ej: ABCDE)" maxlength="5"
                             style="text-transform:uppercase;">
@@ -83,17 +87,20 @@
 
                 <div id="admin-controls" class="hidden">
                     <h3>Configuración</h3>
-                    <select id="category-select">
-                        <option value="aleatorio">Aleatorio</option>
-                        <option value="comida">Comida</option>
-                        <option value="famosos">Famosos</option>
-                        <option value="futbolistas">Futbolistas</option>
-                        <option value="animales">Animales</option>
-                        <option value="cosas_de_casa">Cosas de Casa</option>
-                        <option value="lugares">Lugares</option>
-                        <option value="transportes">Transportes</option>
-                        <option value="chorradas">Chorradas</option>
-                    </select>
+                    <div class="input-group">
+                        <label style="color:var(--text-light); font-size:0.9rem;">Categoría:</label>
+                        <select id="category-select" style="color: var(--text-dark);">
+                            <option value="aleatorio">Aleatorio</option>
+                            <option value="comida">Comida</option>
+                            <option value="famosos">Famosos</option>
+                            <option value="futbolistas">Futbolistas</option>
+                            <option value="animales">Animales</option>
+                            <option value="cosas_de_casa">Cosas de Casa</option>
+                            <option value="lugares">Lugares</option>
+                            <option value="transportes">Transportes</option>
+                            <option value="chorradas">Chorradas</option>
+                        </select>
+                    </div>
 
                     <div
                         style="margin: 15px 0; display: flex; gap: 10px; align-items: center; justify-content: center;">
@@ -102,8 +109,8 @@
                     </div>
                     <div
                         style="margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                        <input type="checkbox" id="know-impostors" style="width: 20px; height: 20px;">
-                        <label for="know-impostors">¿Saben quiénes son?</label>
+                        <input type="checkbox" id="know-impostors" checked style="width: 20px; height: 20px;">
+                        <label for="know-impostors">Impostores Saben su Rol</label>
                     </div>
 
                     <button class="btn-primary" id="btn-start">EMPEZAR PARTIDA</button>
@@ -124,14 +131,9 @@
             </div>
 
             <div class="game-area">
-                <div class="status-indicator">
-                    <p>TURNO DE:</p>
-                    <h3 id="current-turn-name">...</h3>
-                </div>
-
-                <div class="turn-order-container" style="margin: 15px 0; font-size: 0.9em; opacity: 0.8;">
-                    <strong>Orden de Turnos:</strong>
-                    <div id="turn-order-list" style="display: flex; gap: 10px; overflow-x: auto; padding: 5px;"></div>
+                <div class="turn-order-container">
+                    <h3>Orden de Turnos</h3>
+                    <div id="turn-order-list"></div>
                 </div>
 
                 <div id="hint-display" class="hidden glass">
